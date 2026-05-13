@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self' https://cdn.jsdelivr.net;
+                 style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+                 font-src https://fonts.gstatic.com;
+                 img-src 'self' data: https://claudepix.vercel.app;
+                 connect-src https://claudepix.vercel.app;">
+  <title>Tokenmeter</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Title Bar -->
+<div id="title-bar">
+  <div class="traffic-lights">
+    <button class="tl-btn tl-close"    id="btn-close"    title="Close"></button>
+    <button class="tl-btn tl-minimize" id="btn-minimize" title="Minimize"></button>
+    <button class="tl-btn tl-maximize" id="btn-maximize" title="Maximize"></button>
+  </div>
+
+  <div class="app-name">TOKEN<span>METER</span></div>
+
+  <div class="nav-tabs">
+    <button class="nav-tab active" data-page="overview">Overview</button>
+    <button class="nav-tab"        data-page="claude">Claude</button>
+    <button class="nav-tab"        data-page="gemini">Gemini</button>
+  </div>
+
+  <div class="title-bar-right">
+    <span class="last-updated" id="last-updated">—</span>
+    <div class="pulse-dot" id="pulse-dot"></div>
+    <button class="refresh-btn" id="btn-refresh" title="Refresh">↻</button>
+  </div>
+</div>
+
+<div id="app">
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div class="sidebar-section-label">CLI Sources</div>
+
+    <div class="sidebar-item active overview" data-page="overview">
+      <div class="sidebar-dot dot-combined"></div>
+      Overview
+    </div>
+    <div class="sidebar-item claude" data-page="claude">
+      <div class="sidebar-dot dot-claude"></div>
+      Claude Code
+      <span class="sidebar-badge" id="sidebar-claude-badge">—</span>
+    </div>
+    <div class="sidebar-item gemini" data-page="gemini">
+      <div class="sidebar-dot dot-gemini"></div>
+      Gemini CLI
+      <span class="sidebar-badge" id="sidebar-gemini-badge">—</span>
+    </div>
+
+    <hr class="sidebar-divider">
+
+    <div class="sidebar-disabled">
+      <span style="color:var(--text-dim)">+</span>
+      <span>Add CLI</span>
+      <span style="margin-left:auto;font-size:9px;color:var(--text-dim)">v2</span>
+    </div>
+
+    <div class="sidebar-totals">
+      <div class="totals-label">All CLIs · All Time</div>
+      <div class="totals-count" id="sidebar-total-tokens">—</div>
+      <div class="totals-cost" id="sidebar-total-cost">—</div>
+    </div>
+
+    <div class="sidebar-settings-btn" id="btn-settings">
+      ⚙ Settings
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div id="main-content">
+
+    <!-- Loading overlay -->
+    <div id="loading-overlay">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Scanning usage data…</div>
+    </div>
+
+    <!-- Idle Screen -->
+    <div id="idle-screen">
+      <canvas id="idle-canvas"></canvas>
+      <div class="idle-fallback" id="idle-fallback"></div>
+    </div>
+
+    <!-- PAGE: Overview -->
+    <div class="page active" id="page-overview">
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-card-label">Total Tokens</div>
+          <div class="stat-card-value accent-combined" id="ov-total-tokens">—</div>
+          <div class="stat-card-sub">all CLIs · all time</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Est. API Cost</div>
+          <div class="stat-card-value" id="ov-total-cost">—</div>
+          <div class="stat-card-sub">if billed at API rates</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Active CLIs</div>
+          <div class="stat-card-value" id="ov-active-clis">—</div>
+          <div class="stat-card-sub">with data found</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Today</div>
+          <div class="stat-card-value accent-gemini" id="ov-today">—</div>
+          <div class="stat-card-sub" id="ov-today-cost">—</div>
+        </div>
+      </div>
+
+      <div class="stat-grid-2">
+        <!-- Claude summary card -->
+        <div class="cli-summary-card" id="ov-claude-card">
+          <div class="cli-card-header">
+            <div class="cli-icon claude">C</div>
+            <div class="cli-card-title">Claude Code</div>
+            <div class="status-badge active" id="ov-claude-status">
+              <div class="status-badge-dot"></div> Active
+            </div>
+          </div>
+          <div class="meter-row">
+            <div class="meter-label">Input</div>
+            <div class="meter-bar-track"><div class="meter-bar-fill claude" id="ov-claude-input-bar"></div></div>
+            <div class="meter-value mono" id="ov-claude-input-val">—</div>
+          </div>
+          <div class="meter-row">
+            <div class="meter-label">Output</div>
+            <div class="meter-bar-track"><div class="meter-bar-fill claude" id="ov-claude-output-bar"></div></div>
+            <div class="meter-value mono" id="ov-claude-output-val">—</div>
+          </div>
+          <div class="cli-mini-stats">
+            <div>
+              <div class="mini-stat-label">Sessions</div>
+              <div class="mini-stat-value" id="ov-claude-sessions">—</div>
+            </div>
+            <div>
+              <div class="mini-stat-label">Tokens</div>
+              <div class="mini-stat-value" id="ov-claude-tokens">—</div>
+            </div>
+            <div>
+              <div class="mini-stat-label">Est. Cost</div>
+              <div class="mini-stat-value" id="ov-claude-cost">—</div>
+            </div>
+          </div>
+          <div id="ov-claude-note" class="not-detected-note" style="display:none"></div>
+        </div>
+
+        <!-- Gemini summary card -->
+        <div class="cli-summary-card" id="ov-gemini-card">
+          <div class="cli-card-header">
+            <div class="cli-icon gemini">G</div>
+            <div class="cli-card-title">Gemini CLI</div>
+            <div class="status-badge inactive" id="ov-gemini-status">
+              <div class="status-badge-dot"></div> Not Detected
+            </div>
+          </div>
+          <div class="meter-row">
+            <div class="meter-label">Input</div>
+            <div class="meter-bar-track"><div class="meter-bar-fill gemini" id="ov-gemini-input-bar"></div></div>
+            <div class="meter-value mono" id="ov-gemini-input-val">—</div>
+          </div>
+          <div class="meter-row">
+            <div class="meter-label">Output</div>
+            <div class="meter-bar-track"><div class="meter-bar-fill gemini" id="ov-gemini-output-bar"></div></div>
+            <div class="meter-value mono" id="ov-gemini-output-val">—</div>
+          </div>
+          <div class="cli-mini-stats">
+            <div>
+              <div class="mini-stat-label">Sessions</div>
+              <div class="mini-stat-value" id="ov-gemini-sessions">—</div>
+            </div>
+            <div>
+              <div class="mini-stat-label">Tokens</div>
+              <div class="mini-stat-value" id="ov-gemini-tokens">—</div>
+            </div>
+            <div>
+              <div class="mini-stat-label">Est. Cost</div>
+              <div class="mini-stat-value" id="ov-gemini-cost">—</div>
+            </div>
+          </div>
+          <div id="ov-gemini-note" class="not-detected-note" style="display:none"></div>
+        </div>
+      </div>
+
+      <div class="section-heading">Combined Daily Activity (14 days)</div>
+      <div class="chart-container">
+        <canvas id="chart-combined-daily" class="chart-canvas"></canvas>
+      </div>
+    </div>
+
+    <!-- PAGE: Claude Detail -->
+    <div class="page" id="page-claude">
+      <div class="page-header">
+        <div class="page-title" style="color:var(--accent-claude)">Claude Code</div>
+        <div class="page-subtitle" id="cl-header-sub">—</div>
+      </div>
+
+      <div class="section-heading">Usage Summary</div>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-card-label">Input Tokens</div>
+          <div class="stat-card-value accent-claude" id="cl-input">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Output Tokens</div>
+          <div class="stat-card-value accent-claude" id="cl-output">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Cache Read</div>
+          <div class="stat-card-value" id="cl-cache-read">—</div>
+          <div class="stat-card-sub" id="cl-cache-savings">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Cache Write</div>
+          <div class="stat-card-value" id="cl-cache-write">—</div>
+        </div>
+      </div>
+
+      <div class="section-heading">Daily Activity (14 days)</div>
+      <div class="chart-container">
+        <canvas id="chart-claude-daily" class="chart-canvas"></canvas>
+      </div>
+
+      <div class="section-heading">Model Breakdown</div>
+      <div class="chart-container" style="padding:0;overflow:hidden">
+        <table class="breakdown-table" id="cl-model-table">
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Tokens</th>
+              <th>Est. Cost</th>
+              <th style="width:30%">Share</th>
+            </tr>
+          </thead>
+          <tbody id="cl-model-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="section-heading">Projects</div>
+      <div class="chart-container" style="padding:0;overflow:hidden">
+        <table class="breakdown-table" id="cl-project-table">
+          <thead>
+            <tr>
+              <th>Project</th>
+              <th>Sessions</th>
+              <th>Tokens</th>
+              <th>Est. Cost</th>
+              <th style="width:25%">Share</th>
+            </tr>
+          </thead>
+          <tbody id="cl-project-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="section-heading">Recent Sessions</div>
+      <div class="session-list" id="cl-sessions-list"></div>
+    </div>
+
+    <!-- PAGE: Gemini Detail -->
+    <div class="page" id="page-gemini">
+      <div class="page-header">
+        <div class="page-title" style="color:var(--accent-gemini)">Gemini CLI</div>
+        <div class="page-subtitle" id="gm-header-sub">—</div>
+      </div>
+
+      <div id="gm-no-data" class="no-data-card" style="display:none">
+        <div class="no-data-title">No Local Session Data Found</div>
+        <div class="no-data-text">
+          Gemini CLI's local session logging may not be enabled.<br>
+          To enable it, add <code style="color:var(--accent-gemini)">"telemetry": true</code> to your
+          <code style="color:var(--text-muted)">~/.gemini/settings.json</code>.
+        </div>
+        <a class="no-data-link" id="gm-docs-link" href="#">Open Gemini CLI Docs ↗</a>
+      </div>
+
+      <div class="section-heading">Usage Summary</div>
+      <div class="stat-grid" id="gm-stat-grid">
+        <div class="stat-card">
+          <div class="stat-card-label">Input Tokens</div>
+          <div class="stat-card-value accent-gemini" id="gm-input">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Output Tokens</div>
+          <div class="stat-card-value accent-gemini" id="gm-output">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Total Tokens</div>
+          <div class="stat-card-value" id="gm-total">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Est. Cost</div>
+          <div class="stat-card-value" id="gm-cost">—</div>
+        </div>
+      </div>
+
+      <div class="section-heading">Daily Activity (14 days)</div>
+      <div class="chart-container">
+        <canvas id="chart-gemini-daily" class="chart-canvas"></canvas>
+      </div>
+
+      <div class="section-heading">Recent Sessions</div>
+      <div class="session-list" id="gm-sessions-list"></div>
+    </div>
+
+  </div><!-- /main-content -->
+</div><!-- /app -->
+
+<!-- Settings Modal -->
+<div id="settings-overlay">
+  <div class="settings-modal">
+    <div class="settings-title">Settings</div>
+
+    <div class="setting-row">
+      <div class="setting-label">Refresh Interval</div>
+      <select class="setting-select" id="s-refresh">
+        <option value="30">30 seconds</option>
+        <option value="60" selected>60 seconds</option>
+        <option value="300">5 minutes</option>
+        <option value="0">Manual only</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <div class="setting-label">Look-back Window</div>
+      <select class="setting-select" id="s-lookback">
+        <option value="14" selected>14 days</option>
+        <option value="30">30 days</option>
+        <option value="90">90 days</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <div class="setting-label">Custom Claude Projects Path</div>
+      <input class="setting-input" id="s-claude-path" type="text" placeholder="Default: %USERPROFILE%\.claude\projects">
+    </div>
+    <div class="setting-row">
+      <div class="setting-label">Custom Gemini Sessions Path</div>
+      <input class="setting-input" id="s-gemini-path" type="text" placeholder="Default: %USERPROFILE%\.gemini\tmp\chats">
+    </div>
+    <div class="setting-row">
+      <div class="setting-label">Idle Animation Timeout</div>
+      <select class="setting-select" id="s-idle-timeout">
+        <option value="30">30 seconds</option>
+        <option value="60" selected>60 seconds</option>
+        <option value="300">5 minutes</option>
+        <option value="0">Never</option>
+      </select>
+    </div>
+
+    <div class="settings-actions">
+      <button class="btn btn-secondary" id="s-cancel">Cancel</button>
+      <button class="btn btn-primary"   id="s-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="animations.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

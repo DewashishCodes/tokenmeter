@@ -1,0 +1,18 @@
+{
+  "_note": "Prices in USD per 1 million tokens. Edit to keep up to date.",
+  "claude": [
+    { "pattern": "claude-opus-4",      "input": 15.00, "output": 75.00, "cacheRead": 1.50,  "cacheWrite": 18.75 },
+    { "pattern": "claude-sonnet-4",    "input":  3.00, "output": 15.00, "cacheRead": 0.30,  "cacheWrite":  3.75 },
+    { "pattern": "claude-haiku-4",     "input":  0.80, "output":  4.00, "cacheRead": 0.08,  "cacheWrite":  1.00 },
+    { "pattern": "claude-3-5-sonnet",  "input":  3.00, "output": 15.00, "cacheRead": 0.30,  "cacheWrite":  3.75 },
+    { "pattern": "claude-3-5-haiku",   "input":  0.80, "output":  4.00, "cacheRead": 0.08,  "cacheWrite":  1.00 },
+    { "pattern": "claude-3-opus",      "input": 15.00, "output": 75.00, "cacheRead": 1.50,  "cacheWrite": 18.75 },
+    { "pattern": "default",            "input":  3.00, "output": 15.00, "cacheRead": null,  "cacheWrite":  null }
+  ],
+  "gemini": [
+    { "pattern": "gemini-2.5-pro",    "input": 1.25,  "output": 10.00 },
+    { "pattern": "gemini-2.5-flash",  "input": 0.075, "output":  0.30 },
+    { "pattern": "gemini-2.0-flash",  "input": 0.075, "output":  0.30 },
+    { "pattern": "default",           "input": 0.075, "output":  0.30 }
+  ]
+}

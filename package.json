@@ -1,0 +1,41 @@
+{
+  "name": "tokenmeter",
+  "version": "1.0.0",
+  "description": "Glanceable AI CLI token usage dashboard for developers",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder --win"
+  },
+  "keywords": ["electron", "claude", "gemini", "tokens", "developer-tools"],
+  "author": "Dewashish Lambore",
+  "license": "MIT",
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.dewashish.tokenmeter",
+    "productName": "Tokenmeter",
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "pricing.json",
+      "renderer/**/*",
+      "src/**/*",
+      "assets/**/*"
+    ]
+  }
+}
