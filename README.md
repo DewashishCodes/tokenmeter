@@ -19,9 +19,9 @@
 <br/>
 
 <div align="center">
-  <img src="images/Screenshot 2026-05-14 130413.png" width="32%" />
-  <img src="images/Screenshot 2026-05-14 130424.png" width="32%" />
-  <img src="images/Screenshot 2026-05-14 130435.png" width="32%" />
+  <img src="images/img1.png" width="32%" />
+  <img src="images/img2.png" width="32%" />
+  <img src="images/img3.png" width="32%" />
 </div>
 
 <br/>
