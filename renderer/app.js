@@ -8,6 +8,24 @@ let charts = {};
 let idleTimer = null;
 let idleTimeout = 60000;
 let isIdle = false;
+let currentSettings = null;
+let alertFiredForDate = '';
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+let toastTimer = null;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('visible');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('visible'), 3500);
+}
+
+function updateStatus(msg) {
+  const el = document.getElementById('status-text');
+  if (el) el.textContent = msg;
+}
 
 // ── Formatting Helpers ─────────────────────────────────────────────────────
 function fmtTokens(n) {
@@ -47,11 +65,8 @@ function pct(val, total) {
 function navigate(pageId) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
-
   document.getElementById(`page-${pageId}`)?.classList.add('active');
   document.querySelector(`.nav-tab[data-page="${pageId}"]`)?.classList.add('active');
-  document.querySelector(`.sidebar-item[data-page="${pageId}"]`)?.classList.add('active');
 }
 
 // ── Chart Helpers ──────────────────────────────────────────────────────────
@@ -60,26 +75,24 @@ const CHART_DEFAULTS = {
   maintainAspectRatio: true,
   animation: { duration: 400 },
   plugins: { legend: { display: false }, tooltip: {
-    backgroundColor: '#0e0e1a',
-    borderColor: '#2a2a4a',
+    backgroundColor: '#1e1e1e',
+    borderColor: '#3d3d3d',
     borderWidth: 1,
-    titleFont: { family: "'Space Mono', monospace", size: 10 },
-    bodyFont: { family: "'Space Mono', monospace", size: 11 },
-    callbacks: {
-      label: ctx => ` ${fmtTokens(ctx.raw)} tokens`,
-    }
+    titleFont: { family: "'Space Mono', monospace", size: 9 },
+    bodyFont:  { family: "'Space Mono', monospace", size: 10 },
+    callbacks: { label: ctx => ` ${fmtTokens(ctx.raw)} tokens` },
   }},
   scales: {
     x: {
       stacked: true,
-      grid: { color: '#1e1e35' },
-      ticks: { color: '#5a5a7a', font: { family: "'Space Mono', monospace", size: 9 } },
+      grid: { color: '#2e2e2e' },
+      ticks: { color: '#525252', font: { family: "'Space Mono', monospace", size: 9 } },
     },
     y: {
       stacked: true,
-      grid: { color: '#1e1e35' },
+      grid: { color: '#2e2e2e' },
       ticks: {
-        color: '#5a5a7a',
+        color: '#525252',
         font: { family: "'Space Mono', monospace", size: 9 },
         callback: v => fmtTokens(v),
       },
@@ -101,87 +114,161 @@ function makeBarChart(canvasId, labels, datasets) {
 
 function dailyLabels(daily) { return daily.map(d => d.label); }
 
-// ── Render Overview ────────────────────────────────────────────────────────
-function renderOverview(data) {
-  const { claude, gemini, combined } = data;
+// ── Heatmap ────────────────────────────────────────────────────────────────
+function renderHeatmap(heatmap) {
+  const grid = document.getElementById('heatmap-grid');
+  if (!grid || !heatmap || !heatmap.length) return;
 
-  document.getElementById('ov-total-tokens').textContent = fmtTokens(combined.totalTokens);
-  document.getElementById('ov-total-cost').textContent   = fmtCost(combined.estimatedCostUSD);
-  document.getElementById('ov-active-clis').textContent  = `${combined.activeCLIs} / 2`;
-  document.getElementById('ov-today').textContent        = fmtTokens(combined.todayTokens);
-  document.getElementById('ov-today-cost').textContent   = fmtCost(combined.todayCost) + ' today';
+  const maxTokens = Math.max(...heatmap.map(d => d.totalTokens), 1);
+  grid.innerHTML = '';
 
-  // Sidebar totals
-  document.getElementById('sidebar-total-tokens').textContent = fmtTokens(combined.totalTokens);
-  document.getElementById('sidebar-total-cost').textContent   = fmtCost(combined.estimatedCostUSD) + ' estimated';
-
-  // Claude summary card
-  const clTotal = claude.totalTokens || 0;
-  const gmTotal = gemini.totalTokens || 0;
-  const maxTokens = Math.max(clTotal, gmTotal, 1);
-
-  if (claude.available) {
-    document.getElementById('ov-claude-status').className = 'status-badge active';
-    document.getElementById('ov-claude-status').innerHTML = '<div class="status-badge-dot"></div> Active';
-  } else {
-    document.getElementById('ov-claude-status').className = 'status-badge inactive';
-    document.getElementById('ov-claude-status').innerHTML = '<div class="status-badge-dot"></div> Not Detected';
+  // Pad front so column 0 starts on the right day-of-week (Mon=0)
+  const firstDow = (new Date(heatmap[0].date).getDay() + 6) % 7;
+  for (let i = 0; i < firstDow; i++) {
+    const pad = document.createElement('div');
+    pad.className = 'heatmap-cell';
+    grid.appendChild(pad);
   }
 
-  document.getElementById('ov-claude-input-bar').style.width  = pct(claude.totalInputTokens, clTotal) + '%';
-  document.getElementById('ov-claude-output-bar').style.width = pct(claude.totalOutputTokens, clTotal) + '%';
-  document.getElementById('ov-claude-input-val').textContent  = fmtTokens(claude.totalInputTokens);
-  document.getElementById('ov-claude-output-val').textContent = fmtTokens(claude.totalOutputTokens);
-  document.getElementById('ov-claude-sessions').textContent   = claude.totalSessions || 0;
+  for (const day of heatmap) {
+    const cell = document.createElement('div');
+    cell.className = 'heatmap-cell';
+    const t = day.totalTokens;
+    if (t > 0) {
+      const ratio = t / maxTokens;
+      const level = ratio < 0.15 ? 1 : ratio < 0.40 ? 2 : ratio < 0.70 ? 3 : 4;
+      cell.setAttribute('data-level', level);
+    }
+    cell.title = `${day.date}: ${fmtTokens(t)} tokens`;
+    grid.appendChild(cell);
+  }
+}
+
+// ── Peak Hours ─────────────────────────────────────────────────────────────
+function renderPeakHours(hourly) {
+  const canvas = document.getElementById('chart-peak-hours');
+  if (!canvas || !hourly) return;
+  if (charts['chart-peak-hours']) charts['chart-peak-hours'].destroy();
+
+  const maxH = Math.max(...hourly, 1);
+  charts['chart-peak-hours'] = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: hourly.map((_, i) => i % 6 === 0 ? `${i}h` : ''),
+      datasets: [{
+        data: hourly,
+        backgroundColor: hourly.map(v => `rgba(232,101,10,${(0.15 + (v / maxH) * 0.75).toFixed(2)})`),
+        borderRadius: 2, borderSkipped: false,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      animation: { duration: 300 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1e1e1e', borderColor: '#3d3d3d', borderWidth: 1,
+          titleFont: { family: "'Space Mono', monospace", size: 9 },
+          bodyFont:  { family: "'Space Mono', monospace", size: 10 },
+          callbacks: {
+            title: ctx => `${ctx[0].dataIndex}:00 – ${ctx[0].dataIndex + 1}:00`,
+            label: ctx => ` ${fmtTokens(ctx.raw)} tokens`,
+          },
+        },
+      },
+      scales: {
+        x: { grid: { color: '#2e2e2e' }, ticks: { color: '#525252', font: { family: "'Space Mono', monospace", size: 9 } } },
+        y: { grid: { color: '#2e2e2e' }, ticks: { color: '#525252', font: { family: "'Space Mono', monospace", size: 9 }, callback: v => fmtTokens(v) } },
+      },
+    },
+  });
+}
+
+// ── Sparkline ──────────────────────────────────────────────────────────────
+function drawSparkline(canvas, data) {
+  if (!canvas || !data || data.length < 2) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const max = Math.max(...data, 1);
+  const step = w / (data.length - 1);
+
+  ctx.beginPath();
+  for (let i = 0; i < data.length; i++) {
+    const x = i * step;
+    const y = h - (data[i] / max) * h * 0.88 - 1;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = 'rgba(232,101,10,0.8)';
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+
+  ctx.lineTo((data.length - 1) * step, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(232,101,10,0.12)';
+  ctx.fill();
+}
+
+// ── Cost Alert ─────────────────────────────────────────────────────────────
+function checkCostAlert(data) {
+  if (!currentSettings) return;
+  const threshold = parseFloat(currentSettings.dailyCostAlert) || 0;
+  if (threshold <= 0) return;
+  const daily = data.claude?.daily || [];
+  if (!daily.length) return;
+  const todayEntry = daily[daily.length - 1];
+  const todayCost = todayEntry?.estimatedCostUSD || 0;
+  if (todayCost >= threshold && alertFiredForDate !== todayEntry.date) {
+    alertFiredForDate = todayEntry.date;
+    showToast(`Daily cost alert: ~$${todayCost.toFixed(2)} (threshold: $${threshold})`);
+    tm.showNotification?.('Tokenmeter Alert',
+      `Today's Claude cost ~$${todayCost.toFixed(2)} exceeded $${threshold} threshold`);
+  }
+}
+
+// ── Render Overview ────────────────────────────────────────────────────────
+function renderOverview(data) {
+  const { claude } = data;
+  const clTotal = claude.totalTokens || 0;
+  const todayEntry = (claude.daily || []).find(d => d.date === new Date().toLocaleDateString('en-CA'));
+
+  document.getElementById('ov-total-tokens').textContent      = fmtTokens(clTotal);
+  document.getElementById('ov-total-cost').textContent        = fmtCost(claude.estimatedCostUSD);
+  document.getElementById('ov-today').textContent             = fmtTokens(todayEntry?.totalTokens || 0);
+  document.getElementById('ov-combined-sessions').textContent = claude.totalSessions || 0;
+
+  // Claude row
+  const clStatus = document.getElementById('ov-claude-status');
+  if (claude.available) {
+    clStatus.className = 'cli-status-pill active';
+    clStatus.textContent = 'Active';
+  } else {
+    clStatus.className = 'cli-status-pill inactive';
+    clStatus.textContent = 'Not Detected';
+  }
+  document.getElementById('ov-claude-bar').style.width        = claude.available ? '100%' : '0%';
   document.getElementById('ov-claude-tokens').textContent     = fmtTokens(clTotal);
   document.getElementById('ov-claude-cost').textContent       = fmtCost(claude.estimatedCostUSD);
-  document.getElementById('sidebar-claude-badge').textContent = fmtTokens(clTotal);
+  document.getElementById('ov-claude-sessions').textContent   = claude.totalSessions || 0;
+  document.getElementById('ov-claude-input-val').textContent  = fmtTokens(claude.totalInputTokens);
+  document.getElementById('ov-claude-output-val').textContent = fmtTokens(claude.totalOutputTokens);
 
   const claudeNote = document.getElementById('ov-claude-note');
   if (!claude.available) {
-    claudeNote.textContent = `No Claude Code data found. Expected: %USERPROFILE%\\.claude\\projects\\**\\*.jsonl`;
+    claudeNote.textContent = 'No Claude Code data found. Expected: %USERPROFILE%\\.claude\\projects\\**\\*.jsonl';
     claudeNote.style.display = 'block';
   } else {
     claudeNote.style.display = 'none';
   }
 
-  // Gemini summary card
-  if (gemini.available) {
-    document.getElementById('ov-gemini-status').className = 'status-badge active';
-    document.getElementById('ov-gemini-status').innerHTML = '<div class="status-badge-dot"></div> Active';
-  } else {
-    document.getElementById('ov-gemini-status').className = 'status-badge inactive';
-    document.getElementById('ov-gemini-status').innerHTML = '<div class="status-badge-dot"></div> Not Detected';
-  }
-
-  document.getElementById('ov-gemini-input-bar').style.width  = pct(gemini.totalInputTokens, gmTotal) + '%';
-  document.getElementById('ov-gemini-output-bar').style.width = pct(gemini.totalOutputTokens, gmTotal) + '%';
-  document.getElementById('ov-gemini-input-val').textContent  = fmtTokens(gemini.totalInputTokens);
-  document.getElementById('ov-gemini-output-val').textContent = fmtTokens(gemini.totalOutputTokens);
-  document.getElementById('ov-gemini-sessions').textContent   = gemini.totalSessions || 0;
-  document.getElementById('ov-gemini-tokens').textContent     = fmtTokens(gmTotal);
-  document.getElementById('ov-gemini-cost').textContent       = fmtCost(gemini.estimatedCostUSD);
-  document.getElementById('sidebar-gemini-badge').textContent = fmtTokens(gmTotal);
-
-  const geminiNote = document.getElementById('ov-gemini-note');
-  if (!gemini.available && gemini.dataNote) {
-    geminiNote.textContent = gemini.dataNote;
-    geminiNote.style.display = 'block';
-  } else {
-    geminiNote.style.display = 'none';
-  }
-
-  // Combined daily chart
-  const clDaily = claude.daily || [];
-  const gmDaily = gemini.daily || [];
-  const labels = dailyLabels(clDaily.length ? clDaily : gmDaily);
-
-  const clValues = clDaily.map(d => d.totalTokens || 0);
-  const gmValues = gmDaily.map(d => d.totalTokens || 0);
-
-  makeBarChart('chart-combined-daily', labels, [
-    { label: 'Claude', data: clValues, backgroundColor: 'rgba(212,162,122,0.75)', borderRadius: 3, borderSkipped: false },
-    { label: 'Gemini', data: gmValues, backgroundColor: 'rgba(79,158,240,0.75)',  borderRadius: 3, borderSkipped: false },
+  // Daily chart (Claude only)
+  const daily = claude.daily || [];
+  makeBarChart('chart-combined-daily', dailyLabels(daily), [
+    { label: 'Input',  data: daily.map(d => d.inputTokens),  backgroundColor: 'rgba(212,162,122,0.5)',  borderRadius: 3, borderSkipped: false },
+    { label: 'Output', data: daily.map(d => d.outputTokens), backgroundColor: 'rgba(212,162,122,0.85)', borderRadius: 3, borderSkipped: false },
   ]);
 }
 
@@ -193,16 +280,31 @@ function renderClaude(data) {
   document.getElementById('cl-header-sub').textContent =
     `${cl.totalSessions || 0} sessions · ${fmtCost(cl.estimatedCostUSD)} estimated`;
 
+  // Last active session card
+  const sessions = cl.recentSessions || [];
+  const lastActiveCard = document.getElementById('cl-last-active');
+  if (sessions.length > 0) {
+    const s = sessions[0];
+    document.getElementById('cl-last-project').textContent = s.project;
+    document.getElementById('cl-last-time').textContent    = fmtRelTime(s.mtime);
+    document.getElementById('cl-last-tokens').textContent  = fmtTokens(s.totalTokens) + ' tokens';
+    document.getElementById('cl-last-model').textContent   = s.model.length > 30 ? s.model.slice(0, 28) + '…' : s.model;
+    lastActiveCard.style.display = 'flex';
+  } else {
+    lastActiveCard.style.display = 'none';
+  }
+
+  // Insight cards
+  document.getElementById('cl-cache-savings-total').textContent = fmtCost(cl.cacheSavingsUSD || 0);
+  document.getElementById('cl-cost-projection').textContent     = fmtCost(cl.costProjection30d || 0);
+
+  // Usage summary
   document.getElementById('cl-input').textContent       = fmtTokens(cl.totalInputTokens);
   document.getElementById('cl-output').textContent      = fmtTokens(cl.totalOutputTokens);
   document.getElementById('cl-cache-read').textContent  = fmtTokens(cl.totalCacheReadTokens);
   document.getElementById('cl-cache-write').textContent = fmtTokens(cl.totalCacheWriteTokens);
-
-  // Estimate savings from cache reads vs uncached
-  const M = 1_000_000;
-  // rough savings: assume sonnet default pricing (cache read $0.30 vs input $3.00)
-  const savings = ((cl.totalCacheReadTokens || 0) / M) * (3.00 - 0.30);
-  document.getElementById('cl-cache-savings').textContent = `saved ~$${savings.toFixed(2)} vs uncached`;
+  document.getElementById('cl-cache-savings').textContent =
+    `saved ${fmtCost(cl.cacheSavingsUSD || 0)} vs uncached`;
 
   // Daily chart
   const daily = cl.daily || [];
@@ -210,6 +312,10 @@ function renderClaude(data) {
     { label: 'Input',  data: daily.map(d => d.inputTokens),  backgroundColor: 'rgba(212,162,122,0.5)',  borderRadius: 3, borderSkipped: false },
     { label: 'Output', data: daily.map(d => d.outputTokens), backgroundColor: 'rgba(212,162,122,0.85)', borderRadius: 3, borderSkipped: false },
   ]);
+
+  // Heatmap and peak hours
+  renderHeatmap(cl.heatmap);
+  renderPeakHours(cl.hourly);
 
   // Model breakdown table
   const modelBreakdown = cl.modelBreakdown || {};
@@ -239,18 +345,20 @@ function renderClaude(data) {
     tbody.appendChild(tr);
   }
 
-  // Project breakdown table
+  // Project breakdown table with sparklines
   const projects = cl.projectBreakdown || [];
   const ptbody = document.getElementById('cl-project-tbody');
   ptbody.innerHTML = '';
   for (const proj of projects) {
     const share = pct(proj.totalTokens, totalClTokens);
     const tr = document.createElement('tr');
+    const canvasId = `spark-${proj.name.replace(/\W/g, '_')}`;
     tr.innerHTML = `
       <td class="mono">${proj.name}</td>
       <td class="mono dim">${proj.sessionCount}</td>
       <td class="mono dim">${fmtTokens(proj.totalTokens)}</td>
       <td class="mono dim">${fmtCost(proj.estimatedCostUSD)}</td>
+      <td><canvas id="${canvasId}" class="sparkline-canvas" width="58" height="20"></canvas></td>
       <td>
         <div class="table-bar-track">
           <div class="table-bar-fill claude" style="width:${share}%"></div>
@@ -259,12 +367,15 @@ function renderClaude(data) {
       </td>
     `;
     ptbody.appendChild(tr);
+    if (proj.sparkline) {
+      drawSparkline(document.getElementById(canvasId), proj.sparkline);
+    }
   }
 
   // Recent sessions
   const sessionsList = document.getElementById('cl-sessions-list');
   sessionsList.innerHTML = '';
-  for (const s of (cl.recentSessions || [])) {
+  for (const s of sessions) {
     const div = document.createElement('div');
     div.className = 'session-item';
     div.innerHTML = `
@@ -277,61 +388,24 @@ function renderClaude(data) {
   }
 }
 
-// ── Render Gemini Detail ───────────────────────────────────────────────────
-function renderGemini(data) {
-  const gm = data.gemini;
-  if (!gm) return;
-
-  document.getElementById('gm-header-sub').textContent =
-    `${gm.totalSessions || 0} sessions · ${fmtCost(gm.estimatedCostUSD)} estimated`;
-
-  const noDataCard = document.getElementById('gm-no-data');
-  if (!gm.available) {
-    noDataCard.style.display = 'block';
-  } else {
-    noDataCard.style.display = 'none';
-  }
-
-  document.getElementById('gm-input').textContent  = fmtTokens(gm.totalInputTokens);
-  document.getElementById('gm-output').textContent = fmtTokens(gm.totalOutputTokens);
-  document.getElementById('gm-total').textContent  = fmtTokens(gm.totalTokens);
-  document.getElementById('gm-cost').textContent   = fmtCost(gm.estimatedCostUSD);
-
-  // Daily chart
-  const daily = gm.daily || [];
-  makeBarChart('chart-gemini-daily', dailyLabels(daily), [
-    { label: 'Input',  data: daily.map(d => d.inputTokens),  backgroundColor: 'rgba(79,158,240,0.5)',  borderRadius: 3, borderSkipped: false },
-    { label: 'Output', data: daily.map(d => d.outputTokens), backgroundColor: 'rgba(79,158,240,0.85)', borderRadius: 3, borderSkipped: false },
-  ]);
-
-  // Recent sessions
-  const sessionsList = document.getElementById('gm-sessions-list');
-  sessionsList.innerHTML = '';
-  for (const s of (gm.recentSessions || [])) {
-    const div = document.createElement('div');
-    div.className = 'session-item';
-    div.innerHTML = `
-      <div class="session-project">${s.project}</div>
-      <div class="session-time">${fmtRelTime(s.mtime)}</div>
-      <div class="session-tokens">${fmtTokens(s.totalTokens)}</div>
-      <div class="session-model">${s.model}</div>
-    `;
-    sessionsList.appendChild(div);
-  }
-}
 
 // ── Render All ─────────────────────────────────────────────────────────────
 function render(data) {
   usageData = data;
   renderOverview(data);
   renderClaude(data);
-  renderGemini(data);
+  checkCostAlert(data);
 
-  const lastUpdatedEl = document.getElementById('last-updated');
-  lastUpdatedEl.textContent = `Updated ${fmtTimestamp(data.timestamp)}`;
+  const ts = new Date(data.timestamp);
+  document.getElementById('last-updated').textContent =
+    `Updated ${ts.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+
+  const total = data.claude?.totalTokens || 0;
+  const cost  = data.claude?.estimatedCostUSD || 0;
+  updateStatus(`* ${fmtTokens(total)} tokens · ${fmtCost(cost)}`);
 }
 
-// ── Idle Screen ────────────────────────────────────────────────────────────
+// ── Idle ────────────────────────────────────────────────────────────────────
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer);
   if (isIdle) dismissIdle();
@@ -341,17 +415,14 @@ function resetIdleTimer() {
 
 function showIdle() {
   isIdle = true;
-  const screen = document.getElementById('idle-screen');
-  screen.classList.add('visible');
-  const todayTokens = usageData?.combined?.todayTokens || 0;
-  window.claudepix.startIdleAnimation(todayTokens);
+  document.body.classList.add('app-idle');
+  window.claudepix?.setCreatureState('idle');
 }
 
 function dismissIdle() {
   isIdle = false;
-  const screen = document.getElementById('idle-screen');
-  screen.classList.remove('visible');
-  window.claudepix.stopIdleAnimation();
+  document.body.classList.remove('app-idle');
+  window.claudepix?.setCreatureState('idle');
 }
 
 // ── Settings ───────────────────────────────────────────────────────────────
@@ -362,6 +433,7 @@ async function openSettings() {
   document.getElementById('s-claude-path').value  = settings.claudePath || '';
   document.getElementById('s-gemini-path').value  = settings.geminiPath || '';
   document.getElementById('s-idle-timeout').value = settings.idleTimeout || 60;
+  document.getElementById('s-cost-alert').value   = settings.dailyCostAlert || 0;
   document.getElementById('settings-overlay').classList.add('visible');
 }
 
@@ -376,8 +448,10 @@ async function saveSettings() {
     claudePath:      document.getElementById('s-claude-path').value.trim(),
     geminiPath:      document.getElementById('s-gemini-path').value.trim(),
     idleTimeout:     parseInt(document.getElementById('s-idle-timeout').value),
+    dailyCostAlert:  parseFloat(document.getElementById('s-cost-alert').value) || 0,
   };
   await tm.saveSettings(settings);
+  currentSettings = settings;
   idleTimeout = (settings.idleTimeout || 60) * 1000;
   resetIdleTimer();
   closeSettings();
@@ -388,9 +462,14 @@ async function saveSettings() {
 async function refresh() {
   const btn = document.getElementById('btn-refresh');
   btn.classList.add('spinning');
+  updateStatus('* Scanning sessions…');
+  window.claudepix?.setCreatureState('working');
   try {
     const data = await tm.getUsageData();
-    if (data) render(data);
+    if (data) {
+      render(data);
+      window.claudepix?.setCreatureState('idle');
+    }
   } finally {
     btn.classList.remove('spinning');
   }
@@ -398,7 +477,7 @@ async function refresh() {
 
 // ── Init ────────────────────────────────────────────────────────────────────
 async function init() {
-  // Wire up navigation
+  // Navigation (bottom nav + any data-page buttons)
   document.querySelectorAll('[data-page]').forEach(el => {
     el.addEventListener('click', () => navigate(el.dataset.page));
   });
@@ -417,37 +496,40 @@ async function init() {
     if (e.target === document.getElementById('settings-overlay')) closeSettings();
   });
 
-  // Idle screen
-  document.getElementById('idle-screen').addEventListener('click', dismissIdle);
+  // Dismiss idle on click anywhere in content
+  document.getElementById('main-content').addEventListener('click', () => { if (isIdle) dismissIdle(); });
   document.addEventListener('mousemove', resetIdleTimer);
-  document.addEventListener('keydown', resetIdleTimer);
-
-  // Gemini docs link
-  document.getElementById('gm-docs-link').addEventListener('click', e => {
-    e.preventDefault();
-    tm.openExternal('https://github.com/google-gemini/gemini-cli');
+  document.addEventListener('keydown', e => {
+    resetIdleTimer();
+    if ((e.ctrlKey || e.metaKey) && e.key === 'r') { e.preventDefault(); refresh(); }
   });
 
   // Push updates from main process
-  tm.onUsageUpdated(data => {
-    render(data);
-  });
+  tm.onUsageUpdated(data => { render(data); });
 
-  // Load settings for idle timeout
+  // Load settings
   try {
     const settings = await tm.getSettings();
+    currentSettings = settings;
     idleTimeout = (settings.idleTimeout || 60) * 1000;
   } catch { /* use default */ }
 
   // Initial data load
+  updateStatus('* Scanning sessions…');
   const loadingOverlay = document.getElementById('loading-overlay');
   try {
     const data = await tm.getUsageData();
-    if (data) render(data);
+    if (data) {
+      render(data);
+      window.claudepix?.setCreatureState('dance');
+    }
   } finally {
     loadingOverlay.classList.add('hidden');
     setTimeout(() => { loadingOverlay.style.display = 'none'; }, 400);
   }
+
+  // Start roaming creature after content loads
+  setTimeout(() => window.claudepix?.initCreature(), 600);
 
   resetIdleTimer();
 }

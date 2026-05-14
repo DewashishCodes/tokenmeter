@@ -70,9 +70,11 @@ function aggregateClaude(claudeDir) {
   const modelMap = new Map();   // model name → aggregated
   const dailyMap = new Map();   // "YYYY-MM-DD" → aggregated
   const recentSessions = [];
+  const hourlyMap = new Array(24).fill(0);
+  const projectDailyMap = new Map();
 
   let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCacheWrite = 0;
-  let totalCost = 0, totalSessions = 0;
+  let totalCost = 0, totalSessions = 0, totalCacheSavings = 0;
 
   for (const projectFolder of projectDirs) {
     const projectPath = path.join(claudeDir, projectFolder);
@@ -102,6 +104,11 @@ function aggregateClaude(claudeDir) {
         sessionCacheWrite += rec.cacheWriteTokens;
         lastModel = rec.model;
 
+        const recTokens = rec.inputTokens + rec.outputTokens;
+
+        // hourly bucketing
+        hourlyMap[new Date(rec.ts).getHours()] += recTokens;
+
         // daily bucketing (local time)
         const dateKey = new Date(rec.ts).toLocaleDateString('en-CA'); // YYYY-MM-DD
         if (!dailyMap.has(dateKey)) {
@@ -111,8 +118,16 @@ function aggregateClaude(claudeDir) {
         const recCost = calcClaudeCost(rec.model, rec.inputTokens, rec.outputTokens, rec.cacheReadTokens, rec.cacheWriteTokens);
         day.inputTokens += rec.inputTokens;
         day.outputTokens += rec.outputTokens;
-        day.totalTokens += rec.inputTokens + rec.outputTokens;
+        day.totalTokens += recTokens;
         day.estimatedCostUSD += recCost;
+
+        // per-project daily for sparklines
+        if (!projectDailyMap.has(projectName)) projectDailyMap.set(projectName, new Map());
+        const pdm = projectDailyMap.get(projectName);
+        pdm.set(dateKey, (pdm.get(dateKey) || 0) + recTokens);
+
+        // accurate per-record cache savings
+        totalCacheSavings += calcCacheSavings(rec.model, rec.cacheReadTokens);
 
         // model breakdown
         if (!modelMap.has(rec.model)) {
@@ -164,9 +179,19 @@ function aggregateClaude(claudeDir) {
   // Build daily array for last 14 days
   const daily = buildDailyArray(dailyMap, 14);
 
-  // Sort projects by total tokens
+  // Build heatmap (90 days) and cost projection
+  const heatmap = buildDailyArray(dailyMap, 90);
+  const last7 = heatmap.slice(-7);
+  const avg7Cost = last7.reduce((s, d) => s + d.estimatedCostUSD, 0) / 7;
+  const costProjection30d = avg7Cost * 30;
+
+  // Sort projects by total tokens, attach sparklines
   const projectBreakdown = Array.from(projectMap.values())
-    .sort((a, b) => b.totalTokens - a.totalTokens);
+    .sort((a, b) => b.totalTokens - a.totalTokens)
+    .map(proj => ({
+      ...proj,
+      sparkline: buildSparkline(projectDailyMap.get(proj.name) || new Map(), 14),
+    }));
 
   // Sort recent sessions by mtime desc, take top 10
   const sortedSessions = recentSessions
@@ -176,13 +201,6 @@ function aggregateClaude(claudeDir) {
   const modelBreakdown = {};
   for (const [name, data] of modelMap.entries()) {
     modelBreakdown[name] = data;
-  }
-
-  // Cache savings across all models
-  let totalCacheSavings = 0;
-  for (const [model, data] of modelMap.entries()) {
-    // approximate savings — use the dominant model
-    totalCacheSavings += calcCacheSavings(model, data.inputTokens * 0.3); // rough approximation
   }
 
   // Check for stats-cache.json
@@ -201,6 +219,10 @@ function aggregateClaude(claudeDir) {
     modelBreakdown,
     projectBreakdown,
     daily,
+    heatmap,
+    hourly: hourlyMap,
+    cacheSavingsUSD: totalCacheSavings,
+    costProjection30d,
     recentSessions: sortedSessions,
     dataNote,
   };
@@ -216,6 +238,17 @@ function buildDailyArray(dailyMap, days) {
     const label = `${d.getMonth() + 1}/${d.getDate()}`;
     const data = dailyMap.get(dateKey) || { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUSD: 0 };
     result.push({ date: dateKey, label, ...data });
+  }
+  return result;
+}
+
+function buildSparkline(projDailyTokens, days) {
+  const now = new Date();
+  const result = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    result.push(projDailyTokens.get(d.toLocaleDateString('en-CA')) || 0);
   }
   return result;
 }

@@ -6,7 +6,11 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build": "electron-builder --win"
+    "gen-icon": "node scripts/gen-icon.js",
+    "gen-banner": "node scripts/gen-banner.js",
+    "prebuild": "node scripts/gen-icon.js",
+    "build": "electron-builder --win",
+    "build:portable": "electron-builder --win portable"
   },
   "keywords": ["electron", "claude", "gemini", "tokens", "developer-tools"],
   "author": "Dewashish Lambore",
@@ -21,13 +25,25 @@
   "build": {
     "appId": "com.dewashish.tokenmeter",
     "productName": "Tokenmeter",
+    "copyright": "© 2026 Dewashish Lambore",
+    "directories": {
+      "output": "dist"
+    },
     "win": {
-      "target": "nsis",
+      "target": [
+        { "target": "nsis",     "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
       "icon": "assets/icon.ico"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Tokenmeter",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico"
     },
     "files": [
       "main.js",
@@ -35,7 +51,12 @@
       "pricing.json",
       "renderer/**/*",
       "src/**/*",
-      "assets/**/*"
-    ]
+      "assets/**/*",
+      "!**/*.map",
+      "!**/node_modules/.cache/**"
+    ],
+    "extraMetadata": {
+      "version": "1.0.0"
+    }
   }
 }
